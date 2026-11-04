@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adaptive Graph-RAG · 可观测性看板</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">GR</div>
+      <div>
+        <strong>Graph-RAG</strong>
+        <span>Adaptive Knowledge Engine</span>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-view="ask"><span>⌁</span>智能问答</button>
+      <button class="nav-item" data-view="documents"><span>▤</span>文档入库</button>
+      <button class="nav-item" data-view="graph"><span>◎</span>知识图谱</button>
+      <button class="nav-item" data-view="eval"><span>✓</span>评测看板</button>
+      <button class="nav-item" data-view="traces"><span>◷</span>链路 Trace</button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="status-line"><span id="health-dot" class="dot"></span><span id="health-text">连接中…</span></div>
+      <div class="tiny">Dense + BM25 + Graph · Self-RAG</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="page-title">智能问答</h1>
+        <p class="subtitle">三路混合召回 · 三维反思 · 原文精准溯源</p>
+      </div>
+      <div class="metrics">
+        <div class="metric"><label>文档</label><b id="m-docs">-</b></div>
+        <div class="metric"><label>切片</label><b id="m-chunks">-</b></div>
+        <div class="metric"><label>实体</label><b id="m-entities">-</b></div>
+        <div class="metric"><label>P95 延迟</label><b id="m-p95">-</b></div>
+      </div>
+    </header>
+
+    <!-- 问答 -->
+    <section class="view active" id="view-ask">
+      <div class="ask-grid">
+        <div class="card ask-card">
+          <div class="card-head">
+            <h2>提问</h2>
+            <span class="hint">支持中英文混合检索</span>
+          </div>
+          <textarea id="question" rows="4" placeholder="例如：锂电池产品出口需要哪些认证？CE 认证和 FCC 认证有什么区别？"></textarea>
+          <div class="ask-options">
+            <label class="switch"><input type="checkbox" id="opt-hyde" checked /> HyDE</label>
+            <label class="switch"><input type="checkbox" id="opt-graph" checked /> 图谱召回</label>
+            <label class="switch"><input type="checkbox" id="opt-stream" checked /> 流式节点</label>
+            <label class="field">TopK <input type="number" id="opt-topk" value="8" min="1" max="20" /></label>
+          </div>
+          <div class="ask-actions">
+            <button class="btn primary" id="btn-ask">发起检索问答</button>
+            <button class="btn ghost" id="btn-clear">清空</button>
+          </div>
+          <div class="examples">
+            <span>试问：</span>
+            <button class="chip example">A 类目商品入驻需要哪些材料？</button>
+            <button class="chip example">CE 和 FCC 认证的区别</button>
+            <button class="chip example">Battery-X1 循环寿命是多少？</button>
+          </div>
+        </div>
+
+        <div class="card trace-live">
+          <div class="card-head"><h2>节点执行</h2><span class="hint" id="ask-status">待命</span></div>
+          <div id="live-steps" class="timeline empty">发起问题后，这里展示 Self-RAG 状态机的实时节点。</div>
+        </div>
+      </div>
+
+      <div class="card answer-card" id="answer-card">
+        <div class="card-head">
+          <h2>回答</h2>
+          <div class="reflection-badges" id="reflection-badges"></div>
+        </div>
+        <div id="answer-body" class="answer-body empty">等待提问…</div>
+        <div id="warnings" class="warnings"></div>
+        <div id="citations" class="citations"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>召回明细</h2><span class="hint" id="retrieval-summary"></span></div>
+        <div class="table-wrap">
+          <table class="table" id="retrieval-table">
+            <thead>
+              <tr><th>#</th><th>文档 / 章节</th><th>通道</th><th>Dense</th><th>BM25</th><th>Graph</th><th>RRF</th><th>重排</th></tr>
+            </thead>
+            <tbody><tr><td colspan="8" class="empty-row">暂无召回结果</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 文档 -->
+    <section class="view" id="view-documents">
+      <div class="card">
+        <div class="card-head"><h2>上传文档</h2><span class="hint">PDF / DOCX / Markdown / TXT / HTML</span></div>
+        <div class="upload-row">
+          <input type="file" id="file-input" accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm,.csv" />
+          <input type="text" id="upload-tenant" value="default" placeholder="tenant" />
+          <button class="btn primary" id="btn-upload">上传并异步解析</button>
+          <button class="btn ghost" id="btn-samples">导入内置示例</button>
+        </div>
+        <div id="upload-status" class="upload-status"></div>
+        <div id="jobs" class="jobs"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>文档库</h2><span class="hint" id="doc-count"></span></div>
+        <div id="doc-list" class="doc-list empty">尚未入库文档</div>
+      </div>
+    </section>
+
+    <!-- 图谱 -->
+    <section class="view" id="view-graph">
+      <div class="card">
+        <div class="card-head"><h2>实体关系子图</h2><span class="hint">1-2 hop 邻域</span></div>
+        <div class="upload-row">
+          <input type="text" id="graph-entity" placeholder="输入实体，如：UN38.3 认证、Battery-X1" />
+          <select id="graph-hops"><option value="1">1 hop</option><option value="2" selected>2 hop</option><option value="3">3 hop</option></select>
+          <button class="btn primary" id="btn-graph">查询子图</button>
+        </div>
+        <div class="graph-legend">
+          <span><i class="legend-dot c1"></i>认证 / 标准</span>
+          <span><i class="legend-dot c2"></i>产品 / 组件</span>
+          <span><i class="legend-dot c3"></i>平台 / 机构</span>
+          <span><i class="legend-dot c4"></i>其他术语</span>
+        </div>
+        <div class="graph-canvas" id="graph-canvas"><div class="empty">输入实体后加载子图</div></div>
+        <div id="graph-edges" class="edge-list"></div>
+      </div>
+    </section>
+
+    <!-- 评测 -->
+    <section class="view" id="view-eval">
+      <div class="card">
+        <div class="card-head"><h2>Ragas 评测流水线</h2><span class="hint" id="eval-backend"></span></div>
+        <div class="upload-row">
+          <input type="text" id="eval-dataset" placeholder="评测集路径，留空使用 samples/eval_dataset.jsonl" />
+          <button class="btn primary" id="btn-eval">运行评测</button>
+        </div>
+        <div id="eval-status" class="upload-status"></div>
+        <div class="metric-grid" id="eval-metrics"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>历史报告</h2><span class="hint">最近 10 次</span></div>
+        <div class="table-wrap">
+          <table class="table" id="eval-table">
+            <thead><tr><th>报告</th><th>样本</th><th>Faithfulness</th><th>Answer Rel.</th><th>Context Recall</th><th>Context Precision</th><th>P95</th></tr></thead>
+            <tbody><tr><td colspan="7" class="empty-row">暂无评测报告</td></tr></tbody>
+          </table>
+        </div>
+        <div id="eval-records" class="eval-records"></div>
+      </div>
+    </section>
+
+    <!-- Trace -->
+    <section class="view" id="view-traces">
+      <div class="card">
+        <div class="card-head"><h2>全链路 Trace</h2><span class="hint" id="trace-hint"></span></div>
+        <div id="trace-list" class="trace-list empty">暂无 Trace</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Trace 详情</h2><span class="hint" id="trace-detail-id"></span></div>
+        <div id="trace-detail" class="timeline empty">点击左侧 Trace 查看节点耗时与 Token 消耗</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="source-drawer" id="source-drawer">
+    <div class="drawer-head">
+      <div>
+        <h3 id="drawer-title">原文溯源</h3>
+        <span id="drawer-meta" class="hint"></span>
+      </div>
+      <button class="btn ghost" id="drawer-close">关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <input type="text" id="drawer-search" placeholder="在原文中搜索…" />
+      <span id="drawer-page" class="badge"></span>
+      <a id="drawer-download" class="btn ghost" href="#" target="_blank">下载原文</a>
+    </div>
+    <pre id="drawer-content" class="drawer-content"></pre>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

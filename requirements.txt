@@ -1,0 +1,11 @@
+# 核心运行依赖（离线/降级模式仅需这些即可跑通全链路）
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+numpy>=1.26
+networkx>=3.2
+httpx>=0.27
+python-multipart>=0.0.9
+
+# 生产级可选增强（按需开启，见 README「三档运行模式」）
+# pip install -r requirements-full.txt
